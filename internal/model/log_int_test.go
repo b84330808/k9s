@@ -31,7 +31,31 @@ func TestUpdateLogs(t *testing.T) {
 		c <- dao.NewLogItemFromString("line" + strconv.Itoa(i))
 	}
 	time.Sleep(2 * time.Second)
-	assert.Equal(t, size, v.count)
+	assert.Equal(t, 2*size, v.count)
+}
+
+func TestUpdateLogsBusyStream(t *testing.T) {
+	const flushTimeout = 50 * time.Millisecond
+	m := NewLog(client.NewGVR("fred"), makeLogOpts(1_000), flushTimeout)
+	m.Init(makeFactory())
+
+	v := newMockLogView()
+	m.AddListener(v)
+
+	c := make(dao.LogChan)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go m.updateLogs(ctx, c)
+
+	// Keep the gaps between lines well under the flush timeout.
+	for i := range 100 {
+		c <- dao.NewLogItemFromString("line" + strconv.Itoa(i))
+		time.Sleep(flushTimeout / 10)
+	}
+
+	m.mx.RLock()
+	defer m.mx.RUnlock()
+	assert.Positive(t, v.count)
 }
 
 func BenchmarkUpdateLogs(b *testing.B) {

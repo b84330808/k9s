@@ -279,6 +279,10 @@ func (l *Log) ToggleAllContainers(ctx context.Context) {
 }
 
 func (l *Log) updateLogs(ctx context.Context, c dao.LogChan) {
+	// A ticker, since a timer reset on each line never fires on a busy stream.
+	flush := time.NewTicker(l.flushTimeout)
+	defer flush.Stop()
+
 	for {
 		select {
 		case item, ok := <-c:
@@ -294,12 +298,12 @@ func (l *Log) updateLogs(ctx context.Context, c dao.LogChan) {
 			l.Append(item)
 			var overflow bool
 			l.mx.RLock()
-			overflow = int64(l.lines.Len()-l.lastSent) > l.logOptions.Lines
+			overflow = int64(l.lines.Len()-l.lastSent) >= l.logOptions.Lines
 			l.mx.RUnlock()
 			if overflow {
 				l.Notify()
 			}
-		case <-time.After(l.flushTimeout):
+		case <-flush.C:
 			l.Notify()
 		case <-ctx.Done():
 			return
